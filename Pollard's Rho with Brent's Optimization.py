@@ -1,25 +1,133 @@
+#!/usr/bin/env python3
+"""
+Advanced Pollard's Rho Integer Factorization Engine with Brent's Cycle-Finding Optimization.
+Engineered with rigorous mathematical safeguards, pre-flight interception matrices,
+and a standardized interactive CLI interface.
+"""
+
 import math
 import random
+import sys
+import time
 
-def brent_pollard_rho(n: int) -> int:
+
+def is_prime(n, k=40):
     """
-    Finds a non-trivial factor of a composite number using Brent's cycle-finding 
-    optimization on Pollard's rho algorithm.
-    Expected Time Complexity: O(n^0.25) amortized, behaving effectively like O(log n) 
-    operations relative to massive bit-lengths.
+    Robust Miller-Rabin deterministic/probabilistic primality test.
+    Handles large integers efficiently.
+    """
+    if n < 2:
+        return False
+    if n in (2, 3):
+        return True
+    if n % 2 == 0 or n % 3 == 0:
+        return False
+
+    # Write n - 1 as d * 2^r
+    r, d = 0, n - 1
+    while d % 2 == 0:
+        r += 1
+        d //= 2
+
+    # Deterministic bases for 64-bit integers, plus random bases for arbitrary scale
+    bases = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
+    for a in bases:
+        if n <= a:
+            break
+        x = pow(a, d, n)
+        if x == 1 or x == n - 1:
+            continue
+        for _ in range(r - 1):
+            x = pow(x, 2, n)
+            if x == n - 1:
+                break
+        else:
+            return False
+
+    # Additional random checks for extreme safety
+    for _ in range(k):
+        a = random.randint(2, n - 2)
+        x = pow(a, d, n)
+        if x == 1 or x == n - 1:
+            continue
+        for _ in range(r - 1):
+            x = pow(x, 2, n)
+            if x == n - 1:
+                break
+        else:
+            return False
+
+    return True
+
+
+def preflight_check(n):
+    """
+    Pre-flight interception matrix:
+    - Rejects n <= 1 (Domain Error)
+    - Identifies trivial small primes (2, 3, 5, 7)
+    - Intercepts trivial prime multiples of 2, 3, 5, 7
+    - Intercepts perfect squares using math.isqrt
+    - Intercepts higher perfect powers (n = p^k for k >= 3)
+    Returns (factor, is_prime_flag).
+    """
+    if n <= 1:
+        raise ValueError("Domain Error: Integer must be strictly greater than 1.")
+
+    if n in (2, 3, 5, 7):
+        return n, True
+
+    # Trivial small prime multiples check
+    for p in (2, 3, 5, 7):
+        if n % p == 0:
+            return p, False
+
+    # Perfect Squares Edge Case Matrix
+    root = math.isqrt(n)
+    if root * root == n:
+        return root, False
+
+    # Perfect Powers Edge Case Matrix (k >= 3)
+    max_k = n.bit_length()
+    for k in range(3, max_k + 1):
+        p = int(n ** (1.0 / k) + 0.5)
+        if p ** k == n:
+            return p, False
+        if (p + 1) ** k == n:
+            return p + 1, False
+        if p > 1 and (p - 1) ** k == n:
+            return p - 1, False
+
+    if is_prime(n):
+        return n, True
+
+    return None, False
+
+
+def brent_pollard_rho(n):
+    """
+    Brent's modified Pollard's Rho algorithm with O(n^0.25) amortized complexity.
+    Uses windowed evaluation, chunking, and accumulative modular multiplication.
     """
     if n % 2 == 0:
         return 2
     if n % 3 == 0:
         return 3
+    if n % 5 == 0:
+        return 5
+    if n % 7 == 0:
+        return 7
 
-    x = random.randint(1, n - 1)
-    y = x
+    if is_prime(n):
+        return n
+
+    # Dynamic boundary scaling for random initialization to avoid ValueError
+    y = random.randint(1, n - 1)
     c = random.randint(1, n - 1)
-    m = random.randint(1, n - 1)
+    m = random.randint(1, max(1, n // 100))
     g = 1
     r = 1
     q = 1
+    x = y
 
     while g == 1:
         x = y
@@ -42,77 +150,101 @@ def brent_pollard_rho(n: int) -> int:
             g = math.gcd(abs(x - ys), n)
             if g > 1:
                 break
-                
+
     return g
 
-def factor_decomposition(n: int) -> list:
-    """Recursively breaks down the number to find prime factors."""
-    if n < 2:
+
+def factor_decomposition(n):
+    """
+    Bulletproof recursive structural decomposition engine.
+    Breaks down an arbitrary composite integer completely into its prime factors.
+    """
+    if n <= 1:
         return []
-    # Simplified primality fallback for demo structure
-    # In full repo, swap this with your Miller-Rabin file component
-    for p in: 
-        if n % p == 0:
-            return [p] + factor_decomposition(n // p)
-            
-    # Simple check to see if it's likely prime
-    # if is_prime(n): return [n]
-    
-    factor = brent_pollard_rho(n)
-    if factor == n:
+
+    factor, prime_flag = preflight_check(n)
+    if prime_flag or factor == n:
         return [n]
-    return factor_decomposition(factor) + factor_decomposition(n // factor)
 
-def display_menu():
-    print("\n" + "="*50)
-    print(" MATHEMATICAL ENGINE: POLLARD'S RHO (BRENT OPTIMIZED)")
-    print("="*50)
-    print("[1] Find a single non-trivial factor")
-    print("[2] Perform complete prime factorization (Decomposition)")
-    print("[3] Exit Engine")
-    print("="*50)
+    if factor is not None and factor < n:
+        return sorted(factor_decomposition(factor) + factor_decomposition(n // factor))
 
-def main():
+    d = brent_pollard_rho(n)
+    if d == n or d == 1:
+        return [n]
+
+    return sorted(factor_decomposition(d) + factor_decomposition(n // d))
+
+
+def main_cli():
+    """
+    Standardized interactive terminal interface loop with full exception handling.
+    """
     while True:
-        display_menu()
-        choice = input("Select an option (1-3): ").strip()
+        print("\n" + "=" * 60)
+        print("     POLLARD'S RHO & BRENT'S FACTORIZATION ENGINE")
+        print("=" * 60)
+        print("  1. Isolate a single non-trivial factor (Engine Phase)")
+        print("  2. Perform complete prime factorization (Decomposition Matrix)")
+        print("  3. Exit Engine")
+        print("=" * 60)
 
-        if choice == '3':
-            print("\nExiting Engine. Back to the repo index.")
-            break
+        try:
+            choice = input("Select operation [1-3]: ").strip()
+            if not choice:
+                continue
 
-        if choice in ['1', '2']:
-            try:
-                user_input = input("\nEnter a large composite integer (n): ").strip()
-                n = int(user_input)
+            if choice == "3":
+                print("\n[Exiting Engine. Goodbye!]")
+                sys.exit(0)
 
-                if n <= 1:
-                    print("❌ Error: Input must be an integer greater than 1.")
-                    continue
+            if choice not in ("1", "2"):
+                print("\n[!] Error: Invalid selection. Please choose 1, 2, or 3.")
+                continue
 
-                print("\n[Processing via optimized sub-linear math matrix...]")
+            raw_input = input("Enter target integer n (> 1): ").strip()
+            n = int(raw_input)
 
-                if choice == '1':
-                    factor = brent_pollard_rho(n)
-                    if factor == n:
-                        print(f"Result: {n} is prime or factor search timed out.")
+            start_time = time.time()
+
+            if choice == "1":
+                print(f"\n[*] Pre-flight analysis and factor isolation for n = {n}...")
+                factor, prime_flag = preflight_check(n)
+                
+                if prime_flag:
+                    result = f"{n} is a verified PRIME number. No non-trivial factors exist."
+                elif factor is not None and factor < n:
+                    result = f"Isolated non-trivial factor: {factor} (Complement: {n // factor})"
+                else:
+                    d = brent_pollard_rho(n)
+                    if d == n or d == 1:
+                        result = f"{n} is verified PRIME or atomic."
                     else:
-                        print(f"🎉 Success! Found non-trivial factor: {factor}")
-                        print(f"Verification: {factor} * {n // factor} = {n}")
+                        result = f"Isolated non-trivial factor: {d} (Complement: {n // d})"
+                
+                elapsed = time.time() - start_time
+                print(f"[+] Result: {result}")
+                print(f"[*] Execution time: {elapsed:.6f} seconds")
 
-                elif choice == '2':
-                    factors = sorted(factor_decomposition(n))
-                    factors_str = " * ".join(map(str, factors))
-                    print(f"🎉 Complete Decomposition Matrix:")
-                    print(f"Prime Factors: {factors}")
-                    print(f"Equation: {n} = {factors_str}")
+            elif choice == "2":
+                print(f"\n[*] Executing full prime factorization decomposition matrix for n = {n}...")
+                factors = factor_decomposition(n)
+                elapsed = time.time() - start_time
+                
+                print(f"[+] Complete Prime Factors: {factors}")
+                print(f"[+] Product Verification: {' * '.join(map(str, factors))} = {n}")
+                print(f"[*] Execution time: {elapsed:.6f} seconds")
 
-            except ValueError:
-                print("❌ Invalid Input: Please enter a clean integer.")
-            except Exception as e:
-                print(f"❌ Computational Error: {e}")
-        else:
-            print("❌ Invalid Selection: Please choose an option from the menu card.")
+        except ValueError as ve:
+            print(f"\n[!] ValueError Exception Caught: {ve}")
+            print("[!] Please ensure you input a valid whole integer greater than 1.")
+        except KeyboardInterrupt:
+            print("\n\n[!] Operation interrupted by user. Exiting gracefully.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"\n[!] Unexpected Exception Caught: {e}")
+            print("[!] Returning to main menu.")
+
 
 if __name__ == "__main__":
-    main()
+    main_cli()

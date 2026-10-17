@@ -1,186 +1,285 @@
-import random
+#!/usr/bin/env python3
+"""
+Lenstra Elliptic Curve Factorization (ECM) Algorithm Implementation.
+Author: Elite Research Mathematician & Senior Backend Python Engineer Rayaan Tasnim.
+"""
+
 import math
+import random
+import sys
 
-def ext_gcd(a: int, b: int) -> tuple:
-    """
-    Extended Euclidean Algorithm.
-    Returns (gcd, x, y) such that a*x + b*y = gcd.
-    """
-    if a == 0:
-        return b, 0, 1
-    gcd, x1, y1 = ext_gcd(b % a, a)
-    x = y1 - (b // a) * x1
-    y = x1
-    return gcd, x, y
 
-def modular_inverse(a: int, m: int) -> int:
-    """
-    Computes modular inverse. Raises a ValueError containing the GCD 
-    if the inverse does not exist (this is the key trigger for ECM).
-    """
-    gcd, x, _ = ext_gcd(a, m)
-    if gcd != 1:
-        raise ValueError(gcd)  # Found a factor!
-    return (x % m + m) % m
+class FactorFound(Exception):
+  """Custom exception to securely bubble up non-trivial factors found
 
-def ec_add(P: tuple, Q: tuple, a: int, n: int) -> tuple:
-    """
-    Adds two points P and Q on the elliptic curve y^2 = x^3 + ax + b (mod n).
-    Triggers factor discovery if modular inversion fails.
-    """
-    if P is None:
-        return Q
-    if Q is None:
-        return P
-    
-    x1, y1 = P
-    x2, y2 = Q
-    
-    if x1 == x2 and (y1 + y2) % n == 0:
-        return None  # Point at infinity
-        
+  during modular arithmetic and elliptic curve group operations.
+  """
+
+  def __init__(self, factor):
+    super().__init__(f"Factor found: {factor}")
+    self.factor = factor
+
+
+def extended_gcd(a, b):
+  """Extended Euclidean Algorithm.
+
+  Returns (g, x, y) such that a*x + b*y = g = gcd(a, b).
+  """
+  x0, x1, y0, y1 = 0, 1, 1, 0
+  while b != 0:
+    q, a, b = divmod(a, b)
+    x0, x1 = x1 - q * x0, x0
+    y0, y1 = y1 - q * y0, y0
+  return a, x1, y1
+
+
+def mod_inverse(a, m):
+  """Computes modular inverse of a modulo m.
+
+  If gcd(a, m) > 1 and < m, immediately triggers FactorFound(gcd).
+  """
+  a = a % m
+  if a == 0:
+    raise FactorFound(math.gcd(a, m) if m > 1 else m)
+  g, x, y = extended_gcd(a, m)
+  if g > 1:
+    if g == m:
+      return None
+    raise FactorFound(g)
+  return (x % m + m) % m
+
+
+def is_perfect_power(n):
+  """Preprocessing Shield: Checks if n = p^k for k > 1.
+
+  Returns base p if so, else None. Intercepts perfect powers
+  to prevent ECM curve group law collapses.
+  """
+  if n <= 3:
+    return None
+  for b in range(2, int(math.isqrt(n)) + 1):
+    temp = n
+    while temp % b == 0:
+      temp //= b
+    if temp == 1:
+      return b
+  for k in range(2, n.bit_length() + 1):
+    root = int(n ** (1.0 / k))
+    for r in range(max(2, root - 2), root + 3):
+      if r > 1 and r**k == n:
+        return r
+  return None
+
+
+def check_small_primes(n):
+  """Entry Safeguard: Intercepts trivial small inputs and prime factors of 2, 3, 5, 7."""
+  if n <= 1:
+    raise ValueError("Number must be an integer greater than 1.")
+  small_primes = [2, 3, 5, 7]
+  if n in small_primes:
+    return "PRIME", None
+  for p in small_primes:
+    if n % p == 0:
+      return "COMPOSITE", p
+  return None, None
+
+
+def ec_add(P, Q, a, n):
+  """Adds two points P and Q on the Weierstrass elliptic curve y^2 = x^3 + ax + b (mod n)."""
+  if P is None:
+    return Q
+  if Q is None:
+    return P
+
+  x1, y1 = P
+  x2, y2 = Q
+
+  if x1 == x2:
+    if (y1 + y2) % n == 0:
+      return None  # Point at infinity
+    else:
+      return ec_double(P, a, n)
+
+  dx = (x2 - x1) % n
+  inv_dx = mod_inverse(dx, n)
+  dy = (y2 - y1) % n
+  lam = (dy * inv_dx) % n
+
+  x3 = (lam * lam - x1 - x2) % n
+  y3 = (lam * (x1 - x3) - y1) % n
+  return (x3, y3)
+
+
+def ec_double(P, a, n):
+  """Doubles a point P on the Weierstrass elliptic curve y^2 = x^3 + ax + b (mod n)."""
+  if P is None:
+    return None
+
+  x1, y1 = P
+  if y1 == 0:
+    g = math.gcd(2 * y1, n)
+    if 1 < g < n:
+      raise FactorFound(g)
+    return None
+
+  dy = (3 * x1 * x1 + a) % n
+  inv_dy = mod_inverse(2 * y1, n)
+  lam = (dy * inv_dy) % n
+
+  x3 = (lam * lam - 2 * x1) % n
+  y3 = (lam * (x1 - x3) - y1) % n
+  return (x3, y3)
+
+
+def ec_multiply(k, P, a, n):
+  """Scalar point multiplication k * P using the logarithmic double-and-add binary strategy."""
+  R = None
+  Q = P
+  while k > 0:
+    if k & 1:
+      R = ec_add(R, Q, a, n)
+    Q = ec_double(Q, a, n)
+    k >>= 1
+  return R
+
+
+def generate_primes_sieve(b1):
+  """Generates a deterministic list of prime numbers up to smoothness bound B1."""
+  if b1 < 2:
+    return []
+  sieve = [True] * (b1 + 1)
+  sieve[0] = sieve[1] = False
+  for start in range(2, int(math.isqrt(b1)) + 1):
+    if sieve[start]:
+      for i in range(start * start, b1 + 1, start):
+        sieve[i] = False
+  return [i for i, is_p in enumerate(sieve) if is_p]
+
+
+def ecm_factorize(n, b1=2000, max_curves=200):
+  """Core ECM Engine implementing Lenstra's Stage 1 algorithm."""
+  # 1. Global Safeguards & Preprocessing
+  status, factor = check_small_primes(n)
+  if status == "PRIME":
+    return f"{n} is prime."
+  if status == "COMPOSITE":
+    return factor
+
+  base_p = is_perfect_power(n)
+  if base_p is not None:
+    return base_p
+
+  # 2. Stage 1 Smoothness Bounds & Prime Power Setup
+  primes = generate_primes_sieve(b1)
+  prime_powers = []
+  for p in primes:
+    p_power = p
+    while p_power * p <= b1:
+      p_power *= p
+    prime_powers.append(p_power)
+
+  # 3. Randomized Curve Trials Loop
+  for curve_idx in range(max_curves):
+    x0 = random.randrange(0, n)
+    y0 = random.randrange(0, n)
+    a = random.randrange(0, n)
+
+    # Compute b such that the curve passes through (x0, y0)
+    b = (y0 * y0 - x0 * x0 * x0 - a * x0) % n
+
+    # Validate curve discriminant: 4*a^3 + 27*b^2 (mod n)
+    discriminant = (4 * a * a * a + 27 * b * b) % n
+    g = math.gcd(discriminant, n)
+    if g > 1:
+      if g < n:
+        return g
+      else:
+        continue  # Discard singular curve
+
+    P = (x0, y0)
+
     try:
-        if P == Q:
-            # Point doubling logic: slope m = (3*x1^2 + a) / (2*y1)
-            num = (3 * pow(x1, 2, n) + a) % n
-            denom = (2 * y1) % n
-            slope = (num * modular_inverse(denom, n)) % n
-        else:
-            # Point addition logic: slope m = (y2 - y1) / (x2 - x1)
-            num = (y2 - y1) % n
-            denom = (x2 - x1) % n
-            slope = (num * modular_inverse(denom, n)) % n
-    except ValueError as e:
-        # The exception object holds the non-trivial GCD factor
-        raise e
+      # Accumulate scalar multiplications over prime power bounds
+      for p_pow in prime_powers:
+        P = ec_multiply(p_pow, P, a, n)
+    except FactorFound as ff:
+      f = ff.factor
+      if 1 < f < n:
+        return f
 
-    x3 = (pow(slope, 2, n) - x1 - x2) % n
-    y3 = (slope * (x1 - x3) - y1) % n
-    return (x3, y3)
+  raise RuntimeError(
+      "ECM Stage 1 exhausted maximum curve trials without factorization."
+      " Increase B1 or max_curves."
+  )
 
-def ec_multiply(k: int, P: tuple, a: int, n: int) -> tuple:
-    """
-    Multiplies a point P by a scalar k using the double-and-add strategy.
-    Complexity: O(log k) elliptic curve operations.
-    """
-    R = None
-    base = P
-    while k > 0:
-        if k % 2 == 1:
-            R = ec_add(R, base, a, n)
-        base = ec_add(base, base, a, n)
-        k //= 2
-    return R
 
-def lenstra_ecm(n: int, B1: int = 2000) -> int:
-    """
-    Lenstra's Elliptic Curve Factorization (ECM).
-    Tries random elliptic curves to find a non-trivial factor of n.
-    """
-    if n % 2 == 0:
-        return 2
-    if n % 3 == 0:
-        return 3
+def run_continuous_test():
+  """Demonstrates ECM breaking down composite targets across multiple test cases."""
+  print("\n--- Running Continuous ECM Demonstration Test ---")
+  test_composites = [
+      1189,  # 29 * 41
+      10403,  # 101 * 103
+      5917,  # 61 * 97
+      1000003 * 1000033,  # Large composite product
+      2**32 + 1,  # Fermat number F4 (6700417 * 641)
+  ]
 
-    # Generate a list of primes up to bound B1 for the stage 1 scalar multipliers
-    # Pre-computing log bounds for maximum prime power multiplication
-    primes = []
-    sieve = [True] * (B1 + 1)
-    for p in range(2, B1 + 1):
-        if sieve[p]:
-            primes.append(p)
-            for i in range(p * p, B1 + 1, p):
-                sieve[i] = False
+  for target in test_composites:
+    print(f"\nTarget composite: {target}")
+    try:
+      factor = ecm_factorize(target, b1=2000, max_curves=50)
+      cofactor = target // factor
+      print(f"[SUCCESS] Discovered factor: {factor} | Cofactor: {cofactor}")
+      print(f"[SUCCESS] Product verification: {factor * cofactor == target}")
+    except Exception as e:
+      print(f"[FAILED] Test failed for {target}: {e}")
+  print("\nContinuous test completed successfully.")
 
-    # Main trial loop using different random curves
-    for _ in range(200):
-        # Pick a random point and a random curve coefficient 'a'
-        x0, y0 = random.randint(1, n - 1), random.randint(1, n - 1)
-        a = random.randint(1, n - 1)
-        # Compute 'b' such that P(x0, y0) lies on y^2 = x^3 + ax + b
-        b = (pow(y0, 2, n) - pow(x0, 3, n) - a * x0) % n
-        
-        # Check that the curve is smooth (discriminant != 0)
-        discriminant = (4 * pow(a, 3, n) + 27 * pow(b, 2, n)) % n
-        if math.gcd(discriminant, n) == n:
-            continue
-            
-        P = (x0, y0)
-        
-        # Run Stage 1: Successively multiply P by prime powers up to bound B1
-        try:
-            for p in primes:
-                pp = p
-                while pp <= B1:
-                    P = ec_multiply(p, P, a, n)
-                    if P is None:
-                        break
-                    pp *= p
-                if P is None:
-                    break
-        except ValueError as e:
-            # Vector found! Modular inversion failed, revealing the factor.
-            factor = int(str(e))
-            if 1 < factor < n:
-                return factor
-                
-    return n  # Returns n if no factor was caught in this iteration block
-
-def display_menu():
-    print("\n" + "="*60)
-    print(" MATHEMATICAL ENGINE: LENSTRA ELLIPTIC CURVE FACTORIZATION")
-    print("="*60)
-    print(" 1. Factorize an integer via Elliptic Curve Groups")
-    print(" 2. Run continuous test (Demonstrate ECM breaking down 2^x equations)")
-    print(" 3. Exit Engine")
-    print("="*60)
 
 def main():
-    while True:
-        display_menu()
-        choice = input("Select an option (1-3): ").strip()
+  """Standardized interactive CLI interface with an infinite control loop."""
+  print("==================================================")
+  print("   LENSTRA ELLIPTIC CURVE FACTORIZATION (ECM)     ")
+  print("==================================================")
 
-        if choice == '3':
-            print("\nExiting ECM Engine. Returning to the repository index.")
-            break
+  while True:
+    print("\nMain Menu:")
+    print("  1. Factorize an integer via Elliptic Curve Groups")
+    print("  2. Run continuous test (Demonstrate ECM breaking composites)")
+    print("  3. Exit Engine")
 
-        if choice == '1':
-            try:
-                user_input = input("\nEnter a composite number to break down (n): ").strip()
-                n = int(user_input)
-                
-                if n <= 1:
-                    print("❌ Error: Input must be greater than 1.")
-                    continue
-
-                print("\n[Projecting integer onto random elliptic curves over finite fields...]")
-                factor = lenstra_ecm(n)
-                
-                if factor == n:
-                    print(f"❌ Result: Could not find a factor within current bounds. (Might be prime).")
-                else:
-                    print(f"🎉 Success! Elliptic group structure collapsed.")
-                    print(f"Found Factor: {factor}")
-                    print(f"Verification: {factor} * {n // factor} = {n}")
-
-            except ValueError:
-                print("❌ Invalid Input: Please pass a clean integer matrix.")
-            except Exception as e:
-                print(f"❌ Computational Error: {e}")
-
-        elif choice == '2':
-            try:
-                print("\n[Running ECM Demonstration over custom composite product (13875317 * 21997)]")
-                demo_n = 13875317 * 21997
-                print(f"Target Composite: {demo_n}")
-                
-                factor = lenstra_ecm(demo_n, B1=5000)
-                print(f"🎉 Success! Found factor via group law breakdown: {factor}")
-                print(f"Composed elements: {factor} * {demo_n // factor}")
-            except Exception as e:
-                print(f"❌ Demo Failure: {e}")
+    try:
+      choice = input("Select an option [1-3]: ").strip()
+      if choice == "1":
+        raw_input = input("Enter an integer to factorize: ").strip()
+        n = int(raw_input)
+        print(f"Running ECM on {n}...")
+        result = ecm_factorize(n)
+        if isinstance(result, int):
+          cofactor = n // result
+          print(f"\n[+] Non-trivial factor found: {result}")
+          print(f"[+] Cofactor: {cofactor}")
+          print(f"[+] Verification: {result} * {cofactor} = {n}")
         else:
-            print("❌ Invalid Selection: Choose a valid menu choice.")
+          print(f"\n[+] Result: {result}")
+
+      elif choice == "2":
+        run_continuous_test()
+
+      elif choice == "3":
+        print("Exiting ECM Engine. Goodbye!")
+        break
+      else:
+        print("[!] Invalid selection. Please choose 1, 2, or 3.")
+
+    except ValueError as ve:
+      print(f"[!] Input Error: Please enter a valid integer. Details: {ve}")
+    except FactorFound as ff:
+      f = ff.factor
+      print(f"\n[+] Non-trivial factor caught at top-level: {f}")
+    except Exception as e:
+      print(f"[!] Computational Error: {e}")
+
 
 if __name__ == "__main__":
-    main()
+  main()

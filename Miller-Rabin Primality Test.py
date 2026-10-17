@@ -1,136 +1,140 @@
+#!/usr/bin/env python3
+"""
+Ultra-Fast Miller-Rabin Primality Test Engine
+Elite Research Mathematician & Senior Backend Python Engineer Implementation
+"""
+
+import sys
 import random
 
-def miller_rabin_deterministic_check(n: int, a: int, d: int, s: int) -> bool:
+def miller_rabin_test(n: int) -> bool:
     """
-    Core witness loop for Miller-Rabin.
-    Checks if 'a' is a witness to the compositeness of 'n'.
-    Time Complexity: O(log^3 n) bit operations via modular exponentiation.
+    Core Two-Tier Miller-Rabin Primality Test Engine.
+    Tier 1: Deterministic base set for n < 2^64.
+    Tier 2: Probabilistic Monte Carlo with k=40 rounds for n >= 2^64.
     """
-    x = pow(a, d, n)
-    if x == 1 or x == n - 1:
-        return True
-    for _ in range(s - 1):
-        x = pow(x, 2, n)
-        if x == n - 1:
-            return True
-    return False
-
-def is_prime_miller_rabin(n: int, k: int = 40) -> bool:
-    """
-    Ultra-fast Miller-Rabin Primality Test.
-    Uses deterministic bases for integers up to 2^64 for 100% accuracy.
-    Falls back to 'k' random rounds for arbitrary-precision integers (> 64-bit).
-    
-    Overall Time Complexity: O(k log^3 n)
-    """
-    # Base cases
+    # 1. Trapped Domain Inputs: Explicitly catch and reject integers <= 1
     if n <= 1:
-        return False
-    if n <= 3:
+        raise ValueError("Domain error: Integers <= 1 are neither prime nor composite.")
+    
+    # 2. Trivial Small Primes: Instantly identify and return True for 2 and 3
+    if n == 2 or n == 3:
         return True
+        
+    # 3. Trivial Prime Multiples: Instantly intercept even numbers or multiples of 3
     if n % 2 == 0 or n % 3 == 0:
         return False
-
-    # Decompose (n - 1) into d * 2^s where d is odd
-    # Deep bitwise shifting optimization
+        
+    # 4. Decomposition Efficiency: Decompose (n - 1) into d * 2^s where d is odd
     d = n - 1
     s = 0
-    while d % 2 == 0:
-        d //= 2
+    while (d & 1) == 0:
         s += 1
-
-    # Deterministic bases for 100% accuracy within 64-bit unsigned integer range
-    if n < 3_415_500_717_283_211:
-        # Valid for n < 3.41e15
-        bases = [2, 3, 5, 7, 11, 13, 17, 19, 23]
-    elif n < 18_446_744_073_709_551_616:
-        # Valid for all 64-bit integers (n < 2^64)
+        d >>= 1
+        
+    # 5. Two-Tier Witness Selection Strategy
+    if n < 18446744073709551616: # 2^64 threshold
+        # Tier 1: Proven deterministic base set for all 64-bit unsigned integers
         bases = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
     else:
-        # Probabilistic strategy for huge cryptographic numbers (arbitrary precision)
-        # Error bound is less than (1/4)^k
+        # Tier 2: Arbitrary-Precision Probabilistic Matrix (k = 40 independent rounds)
+        k = 40
         bases = [random.randint(2, n - 2) for _ in range(k)]
-
+        
+    # 6. Witness Check Loop (O(k log^3 n) complexity via native pow)
     for a in bases:
+        # Ensure base 'a' is safely bound within valid range
         if a >= n:
+            a = a % (n - 1)
+            if a < 2:
+                a += 2
+        
+        x = pow(a, d, n)
+        if x == 1 or x == n - 1:
             continue
-        if not miller_rabin_deterministic_check(n, a, d, s):
-            return False  # Definitely composite
             
-    return True  # True (Deterministic) or Highly Probable Prime (Arbitrary Precision)
+        composite = True
+        for _ in range(s - 1):
+            x = pow(x, 2, n)
+            if x == n - 1:
+                composite = False
+                break
+                
+        if composite:
+            return False
+            
+    return True
 
-def generate_large_prime(bits: int) -> int:
+def generate_cryptographic_prime(bits: int) -> int:
     """
-    Generates a cryptographically strong candidate prime using Miller-Rabin filtering.
+    Cryptographic Prime Generation Matrix.
+    Prompts for target bit length, forces exact bit bounds and oddness, 
+    and sieves candidates through the core Miller-Rabin testing loop.
     """
+    if bits < 3:
+        raise ValueError("Bit length must be at least 3.")
+        
     while True:
-        # Fast random bit generation
+        # Generate arbitrary candidate integer using random bits
         candidate = random.getrandbits(bits)
-        # Ensure it is odd and has the correct bit length
+        
+        # Fast bitwise operations: force highest bit (exact bit length) and lowest bit (odd)
         candidate |= (1 << (bits - 1)) | 1
-        if is_prime_miller_rabin(candidate):
+        
+        # Sieve through core Miller-Rabin test
+        if miller_rabin_test(candidate):
             return candidate
 
-def display_menu():
-    print("\n" + "="*50)
-    print(" MATHEMATICAL ENGINE: MILLER-RABIN PRIMALITY")
-    print("="*50)
-    print(" 1. Test single integer primality (Ultra-Fast Matrix)")
-    print(" 2. Generate a massive cryptographic prime number")
-    print(" 3. Exit Engine")
-    print("="*50)
-
 def main():
+    """
+    Standardized Interactive Interface (CLI) wrapped in a continuous while True loop
+    with comprehensive try-except safety blocks.
+    """
     while True:
-        display_menu()
-        choice = input("Select an option (1-3): ").strip()
-
-        if choice == '3':
-            print("\nExiting Engine. Returning to the repository index.")
-            break
-
-        if choice == '1':
-            try:
-                user_input = input("\nEnter integer to test (n): ").strip()
-                n = int(user_input)
-
-                print("\n[Executing Miller-Rabin witness sequence...]")
-                is_prime = is_prime_miller_rabin(n)
+        print("\n" + "=" * 60)
+        print("    ULTRA-FAST MILLER-RABIN PRIMALITY TEST ENGINE")
+        print("=" * 60)
+        print("  1. Test single integer primality (Ultra-Fast Matrix)")
+        print("  2. Generate a massive cryptographic prime number")
+        print("  3. Exit Engine")
+        print("-" * 60)
+        
+        try:
+            choice = input("Select an option [1-3]: ").strip()
+            
+            if choice == '1':
+                raw_input_str = input("Enter an integer to test: ").strip()
+                n = int(raw_input_str)
+                
+                print(f"[*] Analyzing integer {n} ({n.bit_length()} bits)...")
+                is_prime = miller_rabin_test(n)
                 
                 if is_prime:
-                    accuracy = "100% Deterministic Verification" if n < 2**64 else "Probabilistic Certainty (>99.9999%)"
-                    print(f"🎉 Result: {n} is PRIME!")
-                    print(f"Confidence Matrix: {accuracy}")
+                    print(f"[+] RESULT: {n} is a PRIME number.")
                 else:
-                    print(f"❌ Result: {n} is COMPOSITE.")
-
-            except ValueError:
-                print("❌ Invalid Input: Please provide a clean integer.")
-            except Exception as e:
-                print(f"❌ Computational Failure: {e}")
-
-        elif choice == '2':
-            try:
-                user_input = input("\nEnter desired prime size in bits (e.g., 512, 1024): ").strip()
-                bits = int(user_input)
-
-                if bits < 3:
-                    print("❌ Error: Bit length must be 3 or greater.")
-                    continue
-
-                print(f"\n[Mining for a {bits}-bit prime via Miller-Rabin sieve...]")
-                large_prime = generate_large_prime(bits)
+                    print(f"[-] RESULT: {n} is a COMPOSITE number.")
+                    
+            elif choice == '2':
+                raw_bits_str = input("Enter target bit length (e.g., 512, 1024, 2048): ").strip()
+                bits = int(raw_bits_str)
                 
-                print(f"🎉 Success! Generated {bits}-bit Prime Matrix:")
-                print(f"Prime (Decimal): {large_prime}")
-                print(f"Digits Count: {len(str(large_prime))}")
-
-            except ValueError:
-                print("❌ Invalid Input: Please enter an integer bit count.")
-            except Exception as e:
-                print(f"❌ Generation Error: {e}")
-        else:
-            print("❌ Invalid Selection: Please select a valid card option.")
+                print(f"[*] Generating {bits}-bit cryptographic prime...")
+                prime_val = generate_cryptographic_prime(bits)
+                
+                print(f"[+] SUCCESS: Generated {bits}-bit verified prime.")
+                print(f"    Decimal Representation: {prime_val}")
+                print(f"    Digit Count: {len(str(prime_val))} digits")
+                
+            elif choice == '3':
+                print("[*] Shutting down Ultra-Fast Miller-Rabin Engine. Goodbye!")
+                sys.exit(0)
+            else:
+                print("[!] Invalid selection. Please enter 1, 2, or 3.")
+                
+        except ValueError as ve:
+            print(f"[!] ValueError Exception Caught: {ve}")
+        except Exception as e:
+            print(f"[!] Critical Exception Caught: {e}")
 
 if __name__ == "__main__":
     main()

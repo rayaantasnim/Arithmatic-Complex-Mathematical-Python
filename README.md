@@ -1,6 +1,6 @@
 # 🧠 Computational Matrix: Elite Mathematical Algorithms in Python
 
-**Computational Matrix** is an enterprise-grade suite of 15 highly optimized, production-ready, interactive command-line interface (CLI) algorithm engines written in pure Python. Engineered for deep exploration in high-complexity number theory, abstract cryptography, algebraic geometry, lattice theory, and advanced graph algorithms, this library provides precise mathematical implementations capable of handling multi-precision integer arithmetic and complex structures.
+**Computational Matrix** is an enterprise-grade suite of 13 highly optimized, production-ready, interactive command-line interface (CLI) algorithm engines written in pure Python. Engineered for deep exploration in high-complexity number theory, abstract cryptography, algebraic geometry, lattice theory, and advanced graph algorithms, this library provides precise mathematical implementations capable of handling multi-precision integer arithmetic and complex structures.
 
 Every algorithm in the suite integrates a centralized pre-flight shield module (`safeguards.py`). This module acts as an automated validation barrier, gracefully intercepting mathematical edge cases, domain errors, non-prime modulus exceptions, perfect powers, and trivial factors before engine initialization, guaranteeing complete execution stability.
 
